@@ -21,12 +21,15 @@ import { resolve } from "node:path";
 
 const args = process.argv.slice(2);
 const checkStale = args.includes("--check-stale");
+const graphIdx = args.indexOf("--graph");
 const graphPath = resolve(
-  args[args.indexOf("--graph") + 1] ??
+  (graphIdx !== -1 ? args[graphIdx + 1] : undefined) ??
     ".understand-anything/knowledge-graph.json"
 );
+const metaIdx = args.indexOf("--meta");
 const metaPath = resolve(
-  args[args.indexOf("--meta") + 1] ?? ".understand-anything/meta.json"
+  (metaIdx !== -1 ? args[metaIdx + 1] : undefined) ??
+    ".understand-anything/meta.json"
 );
 
 function fail(code, msg) {
