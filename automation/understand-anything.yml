@@ -1,0 +1,81 @@
+# .github/workflows/understand-anything.yml
+#
+# Workflow CI cho project ĐANG DÙNG plugin Understand-Anything.
+# Mục đích:
+#   - Đảm bảo file knowledge-graph.json đã commit hợp schema.
+#   - Cảnh báo / fail khi graph "stale" (đã commit code mới mà chưa update graph).
+#   - Optional: build dashboard tĩnh và upload làm artifact để reviewer mở xem.
+#
+# Hướng dẫn dùng:
+#   1. Copy file này vào .github/workflows/ trong repo của bạn.
+#   2. Copy validate-graph.mjs vào scripts/ hoặc bất cứ đâu trong repo.
+#   3. Cài @understand-anything/core làm devDependency:
+#        npm i -D @understand-anything/core    # hoặc pnpm/yarn equivalent
+#   4. Commit folder .understand-anything/ (trừ intermediate/ và diff-overlay.json).
+
+name: Understand-Anything Graph
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    name: Validate knowledge graph
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # cần full history để compare commit hash với meta
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Bạn có thể thay npm bằng pnpm/yarn tuỳ project.
+      - name: Install
+        run: npm ci
+
+      - name: Validate graph schema
+        run: node scripts/validate-graph.mjs
+
+      # Trên main: fail khi graph stale (ép team luôn commit graph mới nhất).
+      # Trên PR: chỉ warn (giảm friction khi WIP).
+      - name: Check freshness (main)
+        if: github.ref == 'refs/heads/main'
+        run: node scripts/validate-graph.mjs --check-stale
+
+      - name: Check freshness (PR, soft)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: node scripts/validate-graph.mjs --check-stale
+
+  # OPTIONAL: build dashboard tĩnh + upload làm artifact để reviewer xem.
+  preview:
+    name: Build dashboard preview
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Build dashboard from this graph
+        run: |
+          # Clone plugin once để mượn dashboard build
+          git clone --depth=1 https://github.com/Lum1104/Understand-Anything.git /tmp/ua
+          cd /tmp/ua
+          npm install -g corepack@latest
+          corepack enable && corepack prepare pnpm@10.6.2 --activate
+          pnpm install
+          # Đặt graph của project vào chỗ dashboard load
+          mkdir -p understand-anything-plugin/packages/dashboard/public/.understand-anything
+          cp -r "$GITHUB_WORKSPACE/.understand-anything/." \
+                understand-anything-plugin/packages/dashboard/public/.understand-anything/
+          pnpm --filter @understand-anything/dashboard build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-preview
+          path: /tmp/ua/understand-anything-plugin/packages/dashboard/dist
+          retention-days: 7
